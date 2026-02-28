@@ -1,0 +1,162 @@
+"""
+pipeline/audio.py
+Handles audio extraction from video and transcription via Whisper.
+Supports both local Whisper model and OpenAI Whisper API.
+"""
+
+import os
+import subprocess
+import torch
+import whisper
+import imageio_ffmpeg
+from openai import OpenAI
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+WHISPER_MODE = os.getenv("WHISPER_MODE", "local")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
+
+# Path to bundled ffmpeg binary
+_FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def extract_audio(video_path: str, output_dir: str) -> str:
+    """
+    Extract audio from video file using ffmpeg.
+    Returns path to extracted .wav file.
+    """
+    video_path = Path(video_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_path = output_dir / f"{video_path.stem}_audio.wav"
+
+    print(f"[Audio] Extracting audio from {video_path.name}...")
+
+    cmd = [
+        _FFMPEG_EXE,
+        "-y",                    # overwrite output
+        "-i", str(video_path),
+        "-vn",                   # no video
+        "-acodec", "pcm_s16le",  # WAV format
+        "-ac", "1",              # mono
+        "-ar", "16000",          # 16kHz (Whisper requirement)
+        str(audio_path),
+    ]
+
+    result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg audio extraction failed: {result.stderr.decode()}")
+
+    print(f"[Audio] Audio extracted to: {audio_path}")
+    return str(audio_path)
+
+
+def transcribe_local(audio_path: str, progress_callback=None) -> dict:
+    """
+    Transcribe audio using local Whisper model.
+    Returns dict with 'text', 'segments' (with timestamps), and 'language'.
+    """
+    print(f"[Whisper] Loading local model: {WHISPER_MODEL}")
+
+    # Auto-detect GPU
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[Whisper] Using device: {device}")
+
+    if device == "cpu":
+        print("[Whisper] No GPU detected — using CPU. This may take 10-15 min for a 1hr video.")
+
+    model = whisper.load_model(WHISPER_MODEL, device=device)
+
+    print(f"[Whisper] Transcribing {audio_path}...")
+
+    result = model.transcribe(
+        audio_path,
+        verbose=False,
+        word_timestamps=True,   # Get word-level timestamps for alignment
+        task="transcribe"
+    )
+
+    print(f"[Whisper] Transcription complete. Language detected: {result.get('language', 'unknown')}")
+    return result
+
+
+def transcribe_api(audio_path: str) -> dict:
+    """
+    Transcribe audio using OpenAI Whisper API.
+    Faster than local, costs ~$0.006/minute.
+    Returns dict compatible with local Whisper output format.
+    """
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    print(f"[Whisper API] Transcribing via OpenAI API...")
+
+    with open(audio_path, "rb") as audio_file:
+        response = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="verbose_json",
+            timestamp_granularities=["segment", "word"]
+        )
+
+    # Normalize to match local Whisper output format
+    result = {
+        "text": response.text,
+        "language": response.language,
+        "segments": [
+            {
+                "id": seg.id,
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+                "words": []
+            }
+            for seg in (response.segments or [])
+        ]
+    }
+
+    print(f"[Whisper API] Transcription complete.")
+    return result
+
+
+def transcribe(audio_path: str, progress_callback=None) -> dict:
+    """
+    Main transcription entry point. Routes to local or API based on config.
+    """
+    if WHISPER_MODE == "api":
+        return transcribe_api(audio_path)
+    else:
+        return transcribe_local(audio_path, progress_callback)
+
+
+def get_transcript_segments(transcription_result: dict) -> list[dict]:
+    """
+    Extract clean segment list from Whisper output.
+    Returns list of: { start, end, text }
+    """
+    segments = []
+    for seg in transcription_result.get("segments", []):
+        segments.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": seg["text"].strip()
+        })
+    return segments
+
+
+if __name__ == "__main__":
+    # Quick test
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python audio.py <video_path>")
+        sys.exit(1)
+
+    video = sys.argv[1]
+    audio = extract_audio(video, "temp/")
+    result = transcribe(audio)
+
+    print("\n--- Transcript Preview ---")
+    for seg in get_transcript_segments(result)[:5]:
+        print(f"[{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text']}")

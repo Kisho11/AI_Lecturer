@@ -1,0 +1,228 @@
+"""
+pipeline/highlight_video.py
+Output A: Generates a highlight reel from the original video.
+Cuts the most important segments and adds a text summary overlay.
+"""
+
+import os
+from pathlib import Path
+from moviepy.editor import (
+    VideoFileClip, TextClip, CompositeVideoClip,
+    concatenate_videoclips, ColorClip, ImageClip
+)
+from moviepy.video.fx.all import fadein, fadeout
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
+
+
+# Max highlight reel duration in seconds (5 minutes)
+MAX_HIGHLIGHT_DURATION = 300
+# Padding around each clip (seconds)
+CLIP_PADDING = 1.0
+# Crossfade duration between clips
+CROSSFADE_DURATION = 0.5
+
+
+def get_font_pil(size: int, bold: bool = False):
+    """Load PIL font for overlay generation."""
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except:
+                continue
+    return ImageFont.load_default()
+
+
+def create_chapter_banner(title: str, timestamp: float, width: int, output_path: str) -> str:
+    """
+    Create a transparent banner overlay showing the slide/chapter title.
+    """
+    banner_height = 100
+    img = Image.new("RGBA", (width, banner_height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # Semi-transparent background
+    draw.rectangle([0, 0, width, banner_height], fill=(18, 18, 24, 180))
+    draw.rectangle([0, 0, 4, banner_height], fill=(99, 102, 241, 255))  # Accent bar
+
+    # Title text
+    font = get_font_pil(36, bold=True)
+    draw.text((20, 15), title[:60], font=font, fill=(255, 255, 255, 255))
+
+    # Timestamp
+    ts_font = get_font_pil(26)
+    ts_text = f"Original: {int(timestamp // 60):02d}:{int(timestamp % 60):02d}"
+    draw.text((20, 60), ts_text, font=ts_font, fill=(148, 163, 184, 220))
+
+    img.save(output_path, "PNG")
+    return output_path
+
+
+def create_transition_card(text: str, width: int, height: int, output_path: str) -> str:
+    """Create a brief transition card between clips."""
+    img = Image.new("RGB", (width, height), (18, 18, 24))
+    draw = ImageDraw.Draw(img)
+
+    draw.rectangle([0, 0, width, 5], fill=(99, 102, 241))
+    draw.rectangle([0, height - 5, width, height], fill=(99, 102, 241))
+
+    font = get_font_pil(42, bold=True)
+    wrapped = textwrap.wrap(text, width=50)
+    total_h = len(wrapped) * 60
+    y = (height - total_h) // 2
+
+    for line in wrapped:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        w = bbox[2] - bbox[0]
+        draw.text(((width - w) // 2, y), line, font=font, fill=(226, 232, 240))
+        y += 60
+
+    img.save(output_path, "PNG")
+    return output_path
+
+
+def extract_highlight_clips(
+    video_path: str,
+    highlight_slides: list[dict],
+    temp_dir: str,
+    progress_callback=None
+) -> list:
+    """
+    Cut video segments for each highlighted slide.
+    Returns list of MoviePy VideoFileClip objects.
+    """
+    temp_dir = Path(temp_dir) / "highlight_clips"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    source = VideoFileClip(str(video_path))
+    video_w, video_h = source.size
+
+    clips = []
+    total = len(highlight_slides)
+
+    for i, slide in enumerate(highlight_slides):
+        start = max(0, slide["slide_start"] - CLIP_PADDING)
+        end = min(source.duration, slide["slide_end"] + CLIP_PADDING)
+        duration = end - start
+
+        if duration < 1.0:
+            continue
+
+        summary = slide.get("summary", {})
+        title = summary.get("title", f"Section {i+1}")
+
+        print(f"[Highlight] Cutting clip {i+1}/{total}: '{title}' ({start:.1f}s - {end:.1f}s)")
+
+        # Cut clip
+        clip = source.subclip(start, end)
+
+        # Add subtle fade in/out
+        if duration > 2:
+            clip = clip.fx(fadein, 0.3).fx(fadeout, 0.3)
+
+        # Add chapter banner overlay (bottom of screen)
+        banner_path = str(temp_dir / f"banner_{i:04d}.png")
+        create_chapter_banner(title, slide["timestamp"], video_w, banner_path)
+
+        banner_img = ImageClip(banner_path).set_duration(min(3.0, duration))
+        banner_img = banner_img.set_position(("left", "bottom"))
+
+        clip_with_banner = CompositeVideoClip([clip, banner_img])
+        clips.append(clip_with_banner)
+
+        if progress_callback:
+            progress_callback((i + 1) / total)
+
+    source.close()
+    return clips
+
+
+def create_highlight_reel(
+    video_path: str,
+    highlight_slides: list[dict],
+    overall_summary: dict,
+    output_path: str,
+    temp_dir: str,
+    progress_callback=None
+) -> str:
+    """
+    Create the full highlight reel video.
+    1. Extract key video segments
+    2. Add overlays and transitions
+    3. Assemble into final MP4
+    """
+    temp_dir = Path(temp_dir) / "highlight"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    if not highlight_slides:
+        raise ValueError("No highlight slides provided")
+
+    source = VideoFileClip(str(video_path))
+    video_w, video_h = source.size
+    source.close()
+
+    all_clips = []
+
+    # Opening title card (3 seconds)
+    lecture_title = overall_summary.get("lecture_title", "Lecture Highlights")
+    title_card_path = str(temp_dir / "title_card.png")
+    create_transition_card(
+        f"📚 {lecture_title}\n— Highlight Reel —",
+        video_w, video_h,
+        title_card_path
+    )
+    title_clip = ImageClip(title_card_path).set_duration(3.0)
+    all_clips.append(title_clip)
+
+    print(f"[Highlight] Processing {len(highlight_slides)} highlight segments...")
+
+    # Extract video clips
+    video_clips = extract_highlight_clips(
+        video_path, highlight_slides, str(temp_dir), progress_callback
+    )
+
+    # Insert transition cards between clips
+    for i, clip in enumerate(video_clips):
+        all_clips.append(clip)
+
+        # Add transition between clips (not after last one)
+        if i < len(video_clips) - 1:
+            next_slide = highlight_slides[i + 1] if i + 1 < len(highlight_slides) else None
+            if next_slide:
+                next_title = next_slide.get("summary", {}).get("title", "Next Section")
+                trans_path = str(temp_dir / f"trans_{i:04d}.png")
+                create_transition_card(f"Next: {next_title}", video_w, video_h, trans_path)
+                trans_clip = ImageClip(trans_path).set_duration(1.5)
+                all_clips.append(trans_clip)
+
+    # Closing card
+    closing_path = str(temp_dir / "closing_card.png")
+    takeaways = overall_summary.get("key_takeaways", [])
+    closing_text = "Key Takeaways:\n" + "\n".join(f"• {t}" for t in takeaways[:3])
+    create_transition_card(closing_text, video_w, video_h, closing_path)
+    closing_clip = ImageClip(closing_path).set_duration(5.0)
+    all_clips.append(closing_clip)
+
+    if not all_clips:
+        raise RuntimeError("No clips were generated!")
+
+    # Assemble
+    print(f"[Highlight] Assembling {len(all_clips)} clips...")
+    final = concatenate_videoclips(all_clips, method="compose")
+
+    final.write_videofile(
+        str(output_path),
+        fps=source.fps if hasattr(source, 'fps') else 30,
+        codec="libx264",
+        audio_codec="aac",
+        threads=4,
+        logger=None
+    )
+
+    print(f"[Highlight] Highlight reel saved to: {output_path}")
+    return str(output_path)
