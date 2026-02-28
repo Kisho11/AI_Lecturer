@@ -257,9 +257,9 @@ def create_slideshow_video(
     intro_audio = str(temp_dir / "intro_audio.mp3")
     generate_tts_sync(intro_script, intro_audio)
 
-    intro_clip = ImageClip(intro_img).with_duration(
+    intro_clip = ImageClip(intro_img).set_duration(
         AudioFileClip(intro_audio).duration
-    ).with_audio(AudioFileClip(intro_audio))
+    ).set_audio(AudioFileClip(intro_audio))
     clips.append(intro_clip)
 
     if progress_callback:
@@ -288,7 +288,7 @@ def create_slideshow_video(
             audio_clip = AudioFileClip(slide_audio_path)
             # Min 3 seconds per slide
             duration = max(audio_clip.duration, 3.0)
-            img_clip = ImageClip(slide_img_path).with_duration(duration).with_audio(audio_clip)
+            img_clip = ImageClip(slide_img_path).set_duration(duration).set_audio(audio_clip)
             clips.append(img_clip)
         except Exception as e:
             print(f"[Slideshow] Warning: skipping slide {i+1}: {e}")
@@ -306,9 +306,9 @@ def create_slideshow_video(
     generate_tts_sync(outro_text, outro_audio)
 
     outro_audio_clip = AudioFileClip(outro_audio)
-    outro_clip = ImageClip(outro_img).with_duration(
+    outro_clip = ImageClip(outro_img).set_duration(
         max(outro_audio_clip.duration, 5.0)
-    ).with_audio(outro_audio_clip)
+    ).set_audio(outro_audio_clip)
     clips.append(outro_clip)
 
     if not clips:

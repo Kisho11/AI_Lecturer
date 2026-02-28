@@ -138,6 +138,7 @@ def extract_highlight_clips(
         if progress_callback:
             progress_callback((i + 1) / total)
 
+    source.close()
     return clips
 
 
@@ -163,7 +164,6 @@ def create_highlight_reel(
 
     source = VideoFileClip(str(video_path))
     video_w, video_h = source.size
-    video_fps = source.fps or 30
     source.close()
 
     all_clips = []
@@ -176,7 +176,7 @@ def create_highlight_reel(
         video_w, video_h,
         title_card_path
     )
-    title_clip = ImageClip(title_card_path).with_duration(3.0)
+    title_clip = ImageClip(title_card_path).set_duration(3.0)
     all_clips.append(title_clip)
 
     print(f"[Highlight] Processing {len(highlight_slides)} highlight segments...")
@@ -197,7 +197,7 @@ def create_highlight_reel(
                 next_title = next_slide.get("summary", {}).get("title", "Next Section")
                 trans_path = str(temp_dir / f"trans_{i:04d}.png")
                 create_transition_card(f"Next: {next_title}", video_w, video_h, trans_path)
-                trans_clip = ImageClip(trans_path).with_duration(1.5)
+                trans_clip = ImageClip(trans_path).set_duration(1.5)
                 all_clips.append(trans_clip)
 
     # Closing card
@@ -205,7 +205,7 @@ def create_highlight_reel(
     takeaways = overall_summary.get("key_takeaways", [])
     closing_text = "Key Takeaways:\n" + "\n".join(f"• {t}" for t in takeaways[:3])
     create_transition_card(closing_text, video_w, video_h, closing_path)
-    closing_clip = ImageClip(closing_path).with_duration(5.0)
+    closing_clip = ImageClip(closing_path).set_duration(5.0)
     all_clips.append(closing_clip)
 
     if not all_clips:
@@ -217,7 +217,7 @@ def create_highlight_reel(
 
     final.write_videofile(
         str(output_path),
-        fps=video_fps,
+        fps=source.fps if hasattr(source, 'fps') else 30,
         codec="libx264",
         audio_codec="aac",
         threads=4,

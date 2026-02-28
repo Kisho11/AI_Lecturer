@@ -163,7 +163,6 @@ def create_highlight_reel(
 
     source = VideoFileClip(str(video_path))
     video_w, video_h = source.size
-    video_fps = source.fps or 30
     source.close()
 
     all_clips = []
@@ -217,7 +216,7 @@ def create_highlight_reel(
 
     final.write_videofile(
         str(output_path),
-        fps=video_fps,
+        fps=source.fps if hasattr(source, 'fps') else 30,
         codec="libx264",
         audio_codec="aac",
         threads=4,

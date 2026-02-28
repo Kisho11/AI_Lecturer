@@ -6,13 +6,20 @@ Streamlit UI for uploading lecture videos and generating summary content.
 import os
 import json
 import shutil
-import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 import streamlit as st
 
 load_dotenv()
+
+# ── Persistent folders ────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).parent
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "output"
+INPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -115,6 +122,10 @@ with st.sidebar:
     st.caption("💡 Tip: For CPU-only machines, use Whisper API for faster transcription.")
 
 
+# ── Session state init ────────────────────────────────────────────────────────
+if "results" not in st.session_state:
+    st.session_state.results = None
+
 # ── Main UI ───────────────────────────────────────────────────────────────────
 st.title("🎓 Lecture Summarizer")
 st.markdown("*Upload a programming lecture video → get a summary video + highlight reel*")
@@ -142,14 +153,15 @@ if uploaded_file:
             st.stop()
 
         # ── Setup ─────────────────────────────────────────────────────────────
-        work_dir = Path(tempfile.mkdtemp(prefix="lecture_summarizer_"))
-        temp_dir = work_dir / "temp"
-        output_dir = work_dir / "outputs"
-        temp_dir.mkdir(parents=True)
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_name = Path(uploaded_file.name).stem
+        output_dir = OUTPUT_DIR / f"{run_id}_{run_name}"
+        temp_dir = output_dir / "temp"
         output_dir.mkdir(parents=True)
+        temp_dir.mkdir(parents=True)
 
-        # Save uploaded file
-        video_path = work_dir / uploaded_file.name
+        # Save uploaded file to input/
+        video_path = INPUT_DIR / uploaded_file.name
         with open(video_path, "wb") as f:
             f.write(uploaded_file.read())
 
@@ -285,7 +297,7 @@ if uploaded_file:
             summary_report = build_full_summary_report(fused_slides, overall_summary)
 
             # Save JSON report
-            report_path = output_dir / "summary_report.json"
+            report_path = output_dir / f"{run_id}_{run_name}_summary.json"
             with open(report_path, "w") as f:
                 json.dump(summary_report, f, indent=2)
 
@@ -312,7 +324,7 @@ if uploaded_file:
                         f"Creating slideshow... {int(p*100)}%"
                     )
 
-                slideshow_path = output_dir / "summary_slideshow.mp4"
+                slideshow_path = output_dir / f"{run_id}_{run_name}_slideshow.mp4"
                 create_slideshow_video(
                     fused_slides, overall_summary,
                     str(slideshow_path), str(temp_dir),
@@ -333,7 +345,7 @@ if uploaded_file:
                         f"Cutting highlights... {int(p*100)}%"
                     )
 
-                highlight_path = output_dir / "highlight_reel.mp4"
+                highlight_path = output_dir / f"{run_id}_{run_name}_highlight.mp4"
                 create_highlight_reel(
                     str(video_path), highlight_slides, overall_summary,
                     str(highlight_path), str(temp_dir),
@@ -344,75 +356,20 @@ if uploaded_file:
             set_stage(4, "done")
             update_progress(1.0, "✅ All done!")
 
-            # ── Results ────────────────────────────────────────────────────────
-            st.markdown("---")
-            st.success(f"🎉 Processing complete! **{overall_summary.get('lecture_title', 'Lecture')}**")
-
-            # Summary card
-            with st.expander("📖 Lecture Summary", expanded=True):
-                st.markdown(f"### {overall_summary.get('lecture_title', '')}")
-                st.markdown(f"**Main Topic:** {overall_summary.get('main_topic', '')}")
-
-                col_l, col_r = st.columns(2)
-                with col_l:
-                    st.markdown("**🏆 Key Takeaways:**")
-                    for t in overall_summary.get("key_takeaways", []):
-                        st.markdown(f"- {t}")
-                with col_r:
-                    st.markdown("**🎯 Learning Outcomes:**")
-                    for o in overall_summary.get("learning_outcomes", []):
-                        st.markdown(f"- {o}")
-
-            # Stats
-            st.markdown("### 📊 Stats")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Slides Detected", len(slide_changes))
-            c2.metric("Transcript Segments", len(transcript_segments))
-            c3.metric("Highlights Selected", len(highlight_slides))
-            duration_min = video_duration / 60
-            c4.metric("Video Duration", f"{duration_min:.1f} min")
-
-            # Downloads
-            st.markdown("### 📥 Downloads")
-            dl_col1, dl_col2, dl_col3 = st.columns(3)
-
-            if slideshow_path and slideshow_path.exists():
-                with open(slideshow_path, "rb") as f:
-                    dl_col1.download_button(
-                        "🎬 Download Slideshow Video",
-                        f, "summary_slideshow.mp4", "video/mp4",
-                        use_container_width=True
-                    )
-
-            if highlight_path and highlight_path.exists():
-                with open(highlight_path, "rb") as f:
-                    dl_col2.download_button(
-                        "✂️ Download Highlight Reel",
-                        f, "highlight_reel.mp4", "video/mp4",
-                        use_container_width=True
-                    )
-
-            with open(report_path, "rb") as f:
-                dl_col3.download_button(
-                    "📄 Download Summary JSON",
-                    f, "summary_report.json", "application/json",
-                    use_container_width=True
-                )
-
-            # Per-slide details
-            with st.expander("🔍 Per-Slide Summaries", expanded=False):
-                for slide in summary_report["slides"]:
-                    s = slide.get("summary", {})
-                    with st.container():
-                        st.markdown(f"**Slide {slide['slide_number']}: {s.get('title', '')}**")
-                        st.markdown(s.get("summary", ""))
-                        concepts = s.get("key_concepts", [])
-                        if concepts:
-                            st.markdown("*Concepts:* " + " · ".join(f"`{c}`" for c in concepts))
-                        code = s.get("code_example", "")
-                        if code:
-                            st.code(code)
-                        st.divider()
+            # Store results in session state so they survive reruns
+            st.session_state.results = {
+                "overall_summary": overall_summary,
+                "summary_report": summary_report,
+                "slideshow_path": str(slideshow_path) if slideshow_path else None,
+                "highlight_path": str(highlight_path) if highlight_path else None,
+                "report_path": str(report_path),
+                "output_dir": str(output_dir),
+                "input_file": str(video_path),
+                "slide_count": len(slide_changes),
+                "segment_count": len(transcript_segments),
+                "highlight_count": len(highlight_slides),
+                "video_duration": video_duration,
+            }
 
         except Exception as e:
             st.error(f"❌ Processing failed: {e}")
@@ -422,12 +379,95 @@ if uploaded_file:
                 st.code(traceback.format_exc())
 
         finally:
-            # Cleanup temp files (keep outputs)
+            # Clean up only the temp subfolder; outputs in output_dir are kept
             try:
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir, ignore_errors=True)
             except:
                 pass
+
+    # ── Results (persists across reruns via session_state) ────────────────────
+    if st.session_state.results:
+        r = st.session_state.results
+        overall_summary = r["overall_summary"]
+        summary_report = r["summary_report"]
+
+        st.markdown("---")
+        st.success(f"🎉 Processing complete! **{overall_summary.get('lecture_title', 'Lecture')}**")
+        st.info(f"📁 Output folder: `{r['output_dir']}`  |  📥 Input saved to: `{r['input_file']}`")
+
+        # Summary card
+        with st.expander("📖 Lecture Summary", expanded=True):
+            st.markdown(f"### {overall_summary.get('lecture_title', '')}")
+            st.markdown(f"**Main Topic:** {overall_summary.get('main_topic', '')}")
+            col_l, col_r = st.columns(2)
+            with col_l:
+                st.markdown("**🏆 Key Takeaways:**")
+                for t in overall_summary.get("key_takeaways", []):
+                    st.markdown(f"- {t}")
+            with col_r:
+                st.markdown("**🎯 Learning Outcomes:**")
+                for o in overall_summary.get("learning_outcomes", []):
+                    st.markdown(f"- {o}")
+
+        # Stats
+        st.markdown("### 📊 Stats")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Slides Detected", r["slide_count"])
+        c2.metric("Transcript Segments", r["segment_count"])
+        c3.metric("Highlights Selected", r["highlight_count"])
+        c4.metric("Video Duration", f"{r['video_duration'] / 60:.1f} min")
+
+        # Downloads
+        st.markdown("### 📥 Downloads")
+        dl_col1, dl_col2, dl_col3 = st.columns(3)
+
+        slideshow_path = Path(r["slideshow_path"]) if r["slideshow_path"] else None
+        highlight_path = Path(r["highlight_path"]) if r["highlight_path"] else None
+        report_path = Path(r["report_path"])
+
+        if slideshow_path and slideshow_path.exists():
+            with open(slideshow_path, "rb") as f:
+                dl_col1.download_button(
+                    "🎬 Download Slideshow Video",
+                    f, Path(r["slideshow_path"]).name, "video/mp4",
+                    use_container_width=True
+                )
+
+        if highlight_path and highlight_path.exists():
+            with open(highlight_path, "rb") as f:
+                dl_col2.download_button(
+                    "✂️ Download Highlight Reel",
+                    f, Path(r["highlight_path"]).name, "video/mp4",
+                    use_container_width=True
+                )
+
+        if report_path.exists():
+            with open(report_path, "rb") as f:
+                dl_col3.download_button(
+                    "📄 Download Summary JSON",
+                    f, Path(r["report_path"]).name, "application/json",
+                    use_container_width=True
+                )
+
+        # Per-slide details
+        with st.expander("🔍 Per-Slide Summaries", expanded=False):
+            for slide in summary_report["slides"]:
+                s = slide.get("summary", {})
+                with st.container():
+                    st.markdown(f"**Slide {slide['slide_number']}: {s.get('title', '')}**")
+                    st.markdown(s.get("summary", ""))
+                    concepts = s.get("key_concepts", [])
+                    if concepts:
+                        st.markdown("*Concepts:* " + " · ".join(f"`{c}`" for c in concepts))
+                    code = s.get("code_example", "")
+                    if code:
+                        st.code(code)
+                    st.divider()
+
+        if st.button("🔄 Process Another Video", use_container_width=True):
+            st.session_state.results = None
+            st.rerun()
 
 else:
     # Landing state

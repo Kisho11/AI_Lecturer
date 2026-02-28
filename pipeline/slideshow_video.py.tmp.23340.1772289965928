@@ -306,9 +306,9 @@ def create_slideshow_video(
     generate_tts_sync(outro_text, outro_audio)
 
     outro_audio_clip = AudioFileClip(outro_audio)
-    outro_clip = ImageClip(outro_img).with_duration(
+    outro_clip = ImageClip(outro_img).set_duration(
         max(outro_audio_clip.duration, 5.0)
-    ).with_audio(outro_audio_clip)
+    ).set_audio(outro_audio_clip)
     clips.append(outro_clip)
 
     if not clips:
