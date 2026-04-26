@@ -8,11 +8,15 @@ Also attempts GPT-4o Vision for better code extraction.
 import os
 import cv2
 import numpy as np
-import easyocr
 import base64
 from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
+
+try:
+    import easyocr
+except ImportError:
+    easyocr = None
 
 load_dotenv()
 
@@ -22,6 +26,19 @@ SLIDE_CHANGE_THRESHOLD = 0.85
 MIN_SLIDE_DURATION = 3.0
 # Sample every N frames (higher = faster but might miss quick slides)
 FRAME_SAMPLE_RATE = 5
+
+
+def _build_easyocr_reader():
+    """
+    Initialize EasyOCR only when needed so the module can still import
+    in environments where the dependency is not installed.
+    """
+    if easyocr is None:
+        raise RuntimeError(
+            "EasyOCR is not installed. Install it with "
+            "`pip install easyocr` or use GPT-4o Vision-only extraction."
+        )
+    return easyocr.Reader(['en'], gpu=False)
 
 
 def detect_slide_changes(video_path: str, output_dir: str, progress_callback=None) -> list[dict]:
@@ -127,7 +144,7 @@ def extract_text_from_slide_ocr(screenshot_path: str, reader=None) -> str:
     """
     if reader is None:
         print("[OCR] Initializing EasyOCR (first time may take a moment)...")
-        reader = easyocr.Reader(['en'], gpu=False)
+        reader = _build_easyocr_reader()
 
     results = reader.readtext(screenshot_path, detail=0, paragraph=True)
     text = "\n".join(results).strip()
@@ -183,7 +200,7 @@ def extract_slide_content(slide_changes: list[dict], use_gpt4v: bool = True, pro
     reader = None
     if not use_gpt4v:
         print("[OCR] Initializing EasyOCR...")
-        reader = easyocr.Reader(['en'], gpu=False)
+        reader = _build_easyocr_reader()
 
     enriched = []
     total = len(slide_changes)
@@ -206,7 +223,7 @@ def extract_slide_content(slide_changes: list[dict], use_gpt4v: bool = True, pro
             # Fallback to EasyOCR if GPT-4V fails
             try:
                 if reader is None:
-                    reader = easyocr.Reader(['en'], gpu=False)
+                    reader = _build_easyocr_reader()
                 text = extract_text_from_slide_ocr(slide["screenshot_path"], reader)
                 slide["ocr_text"] = text
                 slide["ocr_method"] = "easyocr_fallback"

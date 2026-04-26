@@ -5,31 +5,95 @@ Supports both local Whisper model and OpenAI Whisper API.
 """
 
 import os
+import sys
 import shutil
 import subprocess
-import torch
-import whisper
-import imageio_ffmpeg
+import importlib
 from openai import OpenAI
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-WHISPER_MODE = os.getenv("WHISPER_MODE", "local")
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
 
-# Path to bundled ffmpeg binary (may be named ffmpeg-win-x86_64-vX.Y.exe)
-_FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
-_ffmpeg_dir = Path(_FFMPEG_EXE).parent
+def _add_project_venv_site_packages():
+    """
+    If the app is launched outside the repo virtualenv, try to load packages
+    from the project's bundled venv before treating them as missing.
+    """
+    base_dir = Path(__file__).resolve().parents[1]
+    venv_dir = base_dir / "venv"
 
-# Ensure a standard ffmpeg.exe exists so Whisper's subprocess calls can find it
-_ffmpeg_std = _ffmpeg_dir / "ffmpeg.exe"
-if not _ffmpeg_std.exists():
-    shutil.copy2(_FFMPEG_EXE, _ffmpeg_std)
+    candidates = [
+        venv_dir / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+        venv_dir / "Lib" / "site-packages",
+    ]
 
-# Add to PATH so Whisper's internal ffmpeg calls resolve correctly
-os.environ["PATH"] = str(_ffmpeg_dir) + os.pathsep + os.environ.get("PATH", "")
+    for candidate in candidates:
+        candidate_str = str(candidate)
+        if candidate.exists() and candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+
+
+def _import_optional_dependency(module_name: str):
+    try:
+        return importlib.import_module(module_name)
+    except ImportError:
+        _add_project_venv_site_packages()
+        try:
+            return importlib.import_module(module_name)
+        except ImportError:
+            return None
+
+
+imageio_ffmpeg = _import_optional_dependency("imageio_ffmpeg")
+torch = _import_optional_dependency("torch")
+whisper = _import_optional_dependency("whisper")
+
+def _require_local_whisper_dependencies():
+    """
+    Local Whisper needs both PyTorch and the whisper package, but API mode
+    should still work when those libraries are not installed.
+    """
+    missing = []
+    if torch is None:
+        missing.append("torch")
+    if whisper is None:
+        missing.append("openai-whisper")
+
+    if missing:
+        raise RuntimeError(
+            "Local Whisper dependencies are missing: "
+            + ", ".join(missing)
+            + ". Install them or switch WHISPER_MODE to 'api'."
+        )
+
+
+def _get_ffmpeg_executable() -> str:
+    """
+    Resolve an ffmpeg binary only when audio extraction is needed.
+    """
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg
+
+    if imageio_ffmpeg is None:
+        raise RuntimeError(
+            "No ffmpeg binary is available. Install ffmpeg on your system or "
+            "`pip install imageio-ffmpeg` to enable audio extraction."
+        )
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    ffmpeg_dir = Path(ffmpeg_exe).parent
+
+    # Keep Whisper-compatible ffmpeg naming where possible without forcing it
+    # during module import.
+    ffmpeg_std = ffmpeg_dir / "ffmpeg.exe"
+    if os.name == "nt" and not ffmpeg_std.exists():
+        shutil.copy2(ffmpeg_exe, ffmpeg_std)
+
+    os.environ["PATH"] = str(ffmpeg_dir) + os.pathsep + os.environ.get("PATH", "")
+    return ffmpeg_exe
 
 
 def extract_audio(video_path: str, output_dir: str) -> str:
@@ -44,9 +108,10 @@ def extract_audio(video_path: str, output_dir: str) -> str:
     audio_path = output_dir / f"{video_path.stem}_audio.wav"
 
     print(f"[Audio] Extracting audio from {video_path.name}...")
+    ffmpeg_exe = _get_ffmpeg_executable()
 
     cmd = [
-        _FFMPEG_EXE,
+        ffmpeg_exe,
         "-y",                    # overwrite output
         "-i", str(video_path),
         "-vn",                   # no video
@@ -69,7 +134,9 @@ def transcribe_local(audio_path: str, progress_callback=None) -> dict:
     Transcribe audio using local Whisper model.
     Returns dict with 'text', 'segments' (with timestamps), and 'language'.
     """
-    print(f"[Whisper] Loading local model: {WHISPER_MODEL}")
+    _require_local_whisper_dependencies()
+    whisper_model = os.getenv("WHISPER_MODEL", "medium")
+    print(f"[Whisper] Loading local model: {whisper_model}")
 
     # Auto-detect GPU
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,7 +145,7 @@ def transcribe_local(audio_path: str, progress_callback=None) -> dict:
     if device == "cpu":
         print("[Whisper] No GPU detected — using CPU. This may take 10-15 min for a 1hr video.")
 
-    model = whisper.load_model(WHISPER_MODEL, device=device)
+    model = whisper.load_model(whisper_model, device=device)
 
     print(f"[Whisper] Transcribing {audio_path}...")
 
@@ -135,7 +202,8 @@ def transcribe(audio_path: str, progress_callback=None) -> dict:
     """
     Main transcription entry point. Routes to local or API based on config.
     """
-    if WHISPER_MODE == "api":
+    whisper_mode = os.getenv("WHISPER_MODE", "local").strip().lower()
+    if whisper_mode == "api":
         return transcribe_api(audio_path)
     else:
         return transcribe_local(audio_path, progress_callback)
