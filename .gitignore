@@ -34,10 +34,9 @@ Thumbs.db
 
 # App-generated temp/output artifacts
 temp/
-outputs/
 slides/
-*.mp4
-*.wav
-*.mp3
-*.png
-*.json
+# *.mp4
+# *.wav
+# *.mp3
+# *.png
+# *.json
