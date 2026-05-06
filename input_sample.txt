@@ -1,0 +1,198 @@
+overall_summary = {
+    "lecture_title": "Arrays in Python",
+    "main_topic": "Lists, NumPy Arrays, and Array Operations",
+    "intro_voiceover": (
+        "Welcome to this summary on Arrays in Python. "
+        "We'll cover Python lists as arrays, NumPy arrays for numerical computing, "
+        "common array operations, and when to use each approach."
+    ),
+    "key_takeaways": [
+        "Python lists act as dynamic arrays and can hold mixed data types.",
+        "NumPy arrays are fixed-type and optimised for numerical operations.",
+        "Indexing and slicing let you access specific elements or sub-arrays.",
+        "Array operations in NumPy are applied element-wise without loops.",
+        "2D arrays represent matrices and support row and column access.",
+        "Choose lists for general use, NumPy arrays for maths and data science.",
+    ],
+}
+
+fused_slides = [
+    {
+        "slide_number": 1,
+        "timestamp": 0,
+        "summary": {
+            "title": "What is an Array?",
+            "summary": (
+                "An array is an ordered collection of elements stored at contiguous memory locations. "
+                "In Python, the built-in list serves as a dynamic array. "
+                "For numerical work, the NumPy library provides a true array type."
+            ),
+            "key_concepts": [
+                "Ordered collection of elements",
+                "Zero-based indexing",
+                "Python list = built-in dynamic array",
+                "NumPy ndarray = fixed-type numerical array",
+            ],
+            "code_example": (
+                "# Python list as an array\n"
+                "fruits = ['apple', 'banana', 'cherry']\n"
+                "print(fruits[0])  # apple"
+            ),
+            "voiceover_script": (
+                "An array is an ordered collection of elements accessed by index. "
+                "In Python, the list is the simplest array. Elements are zero-indexed, "
+                "so the first item is at position zero. For numerical computing, NumPy "
+                "provides a faster, fixed-type array called ndarray."
+            ),
+        },
+    },
+    {
+        "slide_number": 2,
+        "timestamp": 120,
+        "summary": {
+            "title": "Creating Arrays in Python",
+            "summary": (
+                "Python lists are created with square brackets. "
+                "NumPy arrays are created using numpy.array() from a list, "
+                "or helper functions like zeros(), ones(), and arange()."
+            ),
+            "key_concepts": [
+                "list()  or  []  — creates a Python list",
+                "np.array([...])  — from an existing list",
+                "np.zeros(n)  — array of zeros",
+                "np.arange(start, stop, step)  — range as array",
+            ],
+            "code_example": (
+                "import numpy as np\n"
+                "a = np.array([1, 2, 3, 4, 5])\n"
+                "b = np.zeros(5)       # [0. 0. 0. 0. 0.]\n"
+                "c = np.arange(0, 10, 2)  # [0 2 4 6 8]"
+            ),
+            "voiceover_script": (
+                "You can create a NumPy array by passing a Python list to numpy dot array. "
+                "For common patterns, use zeros to create an array filled with zeros, "
+                "ones for an array of ones, and arange to generate a range of numbers "
+                "with a custom step size — similar to Python's built-in range."
+            ),
+        },
+    },
+    {
+        "slide_number": 3,
+        "timestamp": 240,
+        "summary": {
+            "title": "Indexing and Slicing",
+            "summary": (
+                "Individual elements are accessed by their index. "
+                "Slicing extracts a sub-array using start:stop:step notation. "
+                "Negative indices count from the end of the array."
+            ),
+            "key_concepts": [
+                "array[0]  — first element",
+                "array[-1]  — last element",
+                "array[1:4]  — elements at index 1, 2, 3",
+                "array[::2]  — every second element",
+            ],
+            "code_example": (
+                "a = np.array([10, 20, 30, 40, 50])\n"
+                "print(a[0])     # 10\n"
+                "print(a[-1])    # 50\n"
+                "print(a[1:4])   # [20 30 40]\n"
+                "print(a[::2])   # [10 30 50]"
+            ),
+            "voiceover_script": (
+                "Indexing retrieves a single element — index zero gives the first, "
+                "and negative one gives the last. Slicing uses start colon stop to "
+                "extract a range. Adding a second colon followed by a step lets you "
+                "skip elements, for example every second item."
+            ),
+        },
+    },
+    {
+        "slide_number": 4,
+        "timestamp": 360,
+        "summary": {
+            "title": "Array Operations",
+            "summary": (
+                "NumPy applies arithmetic operations element-wise across the entire array "
+                "without needing a loop. This is called vectorisation and is much faster "
+                "than iterating with a for loop."
+            ),
+            "key_concepts": [
+                "Element-wise: +, -, *, /  applied to every element",
+                "No loop needed — NumPy handles it internally",
+                "np.sum(), np.mean(), np.max(), np.min()",
+                "Vectorised code is faster than Python loops",
+            ],
+            "code_example": (
+                "a = np.array([1, 2, 3, 4, 5])\n"
+                "print(a * 2)       # [2 4 6 8 10]\n"
+                "print(a + 10)      # [11 12 13 14 15]\n"
+                "print(np.sum(a))   # 15\n"
+                "print(np.mean(a))  # 3.0"
+            ),
+            "voiceover_script": (
+                "One of NumPy's biggest advantages is vectorisation. When you multiply "
+                "an array by two, NumPy applies the operation to every element automatically — "
+                "no for loop needed. Built-in functions like sum, mean, max, and min also "
+                "work on the whole array in a single call."
+            ),
+        },
+    },
+    {
+        "slide_number": 5,
+        "timestamp": 480,
+        "summary": {
+            "title": "2D Arrays and Matrices",
+            "summary": (
+                "A 2D NumPy array represents a matrix with rows and columns. "
+                "You access elements with two indices, and you can slice entire "
+                "rows or columns at once."
+            ),
+            "key_concepts": [
+                "np.array([[row1], [row2]])  — create 2D array",
+                "array[row, col]  — access single element",
+                "array[0, :]  — entire first row",
+                "array[:, 1]  — entire second column",
+            ],
+            "code_example": (
+                "m = np.array([[1, 2, 3],\n"
+                "              [4, 5, 6],\n"
+                "              [7, 8, 9]])\n"
+                "print(m[1, 2])   # 6\n"
+                "print(m[0, :])   # [1 2 3]\n"
+                "print(m[:, 1])   # [2 5 8]"
+            ),
+            "voiceover_script": (
+                "A 2D array is like a table with rows and columns. You create one by "
+                "nesting lists inside numpy dot array. To access an element, provide "
+                "the row index then the column index. Use a colon to select an entire "
+                "row or column — this is called a slice along that axis."
+            ),
+        },
+    },
+    {
+        "slide_number": 6,
+        "timestamp": 600,
+        "summary": {
+            "title": "List vs NumPy Array — When to Use Which",
+            "summary": (
+                "Python lists are flexible and hold mixed types, making them ideal for "
+                "general-purpose collections. NumPy arrays are faster and memory-efficient "
+                "for large numerical datasets and mathematical operations."
+            ),
+            "key_concepts": [
+                "List: mixed types, dynamic size, general use",
+                "NumPy: same type, fixed size, maths and data",
+                "NumPy is 10–100x faster for large number arrays",
+                "Pandas, scikit-learn, TensorFlow all use NumPy arrays",
+            ],
+            "code_example": "",
+            "voiceover_script": (
+                "Use a Python list when you need a flexible collection of mixed items. "
+                "Switch to a NumPy array when you're doing maths on large datasets — "
+                "it is significantly faster and uses less memory. Most data science "
+                "libraries like Pandas, scikit-learn, and TensorFlow expect NumPy arrays."
+            ),
+        },
+    },
+]
